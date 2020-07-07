@@ -1,5 +1,6 @@
 #include<stdio.h>
 #include<stdlib.h>
+#include<limits.h>
 
 typedef struct heap_defi heap;
 struct heap_defi
@@ -21,6 +22,7 @@ void Init(int max,heap* the_heap)
     the_heap->max_size=max;
     the_heap->elements=(int*)malloc((max+1)*sizeof(int));
     the_heap->size=0;
+    the_heap->elements[0]=INT_MIN;
 }
 void Insert(heap* the_heap,int date)
 {
