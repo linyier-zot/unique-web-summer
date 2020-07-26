@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en" >
+<head>
+<meta charset="UTF-8">
+<title>Signin</title>
+  <script src="../static/js/sha1.js"></script>
+
+</head>
+<body>
+  <h1>这是登录页面</h1>
+  <div style="margin:7px">
+    <form action="/signin/" method="post" onsubmit='encrypt()'>
+      <input class="uk-input" type="text" name="username" placeholder="用户名" Pattern ="^[a-zA-Z0-9_-]{4,16}$" required><br>
+      <input class="uk-input" type="password" name="password1" id="password1" placeholder="输入密码" pattern="^(?![0-9]+$)(?![a-zA-Z]+$)[0-9A-Za-z]{6,20}$" required><br>
+      <input class="uk-input" type="submit">
+    </form>
+  </div>
+  <a href="/register">注册</a>
+{% if get_flashed_messages() %}
+    <p>{{get_flashed_messages()[0]|safe}}</p>
+{% endif %}
+</body>
+
+<script>
+  function encrypt() {
+        // 将密码框的值修改为sha1加密后的
+        document.getElementById('password1').value = sha1(document.getElementById('password1').value);
+        document.getElementById('password2').value = sha1(document.getElementById('password2').value);
+    }
+</script>
+</html>
+

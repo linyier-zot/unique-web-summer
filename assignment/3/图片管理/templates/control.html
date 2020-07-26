@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>control</title>
+</head>
+<body>
+<h1>用户名:{{the_user.name}}</h1>
+{% if get_flashed_messages() %}
+    <p>{{get_flashed_messages()[0]|safe}}</p>
+{% endif %}
+<form action = "/uploader/" method = "POST" enctype = "multipart/form-data">
+    <input type = "file" name = "file" />
+    <input type = "submit"/>
+</form>
+{% for i in images %}
+    <img src="../static/images/{{user_url}}/{{i.name}}" width="50%">
+    <a href="/delete/{{i.name}}" target="_blank">删除</a>&nbsp;<a href="/download/{{i.name}}" target="_blank">下载</a>
+{% endfor %}
+</body>
+</html>
