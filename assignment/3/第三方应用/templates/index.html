@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>index</title>
+</head>
+<body>
+<h1>这是第三方网站</h1>
+<h1>用户名:{{name}}</h1>
+{% if get_flashed_messages() %}
+    <p>{{get_flashed_messages()[0]|safe}}</p>
+{% endif %}
+<form action = "/third/upload/" method = "POST" enctype = "multipart/form-data">
+    <input type = "file" name = "file" />
+    <input type = "submit"/>
+</form>
+{% for i in images %}
+    <img src="/third/get/{{i}}" width="50%">
+    <a href="/third/delete/{{i}}" target="_blank">删除</a>&nbsp;<a href="/third/download/{{i}}" target="_blank">下载</a>
+{% endfor %}
+</body>
+</html>

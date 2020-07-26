@@ -1,8 +1,11 @@
 from flask import Flask, request, flash, url_for, redirect, render_template, make_response, send_file
 from flask_sqlalchemy import SQLAlchemy
 from hashlib import sha1
-import datetime, time
+import datetime
+import time
 import os
+import json
+import redis
 
 the_secret_key = 'zot'
 
@@ -12,6 +15,7 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = 'linyier'
 db = SQLAlchemy(app)
 
+r = redis.StrictRedis(host='localhost', port=6379, db=0)
 
 class users(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -32,14 +36,14 @@ def index():
     if identify():
         return redirect(url_for('control'))
     else:
-        return redirect(url_for('signin'))
+        return redirect(url_for('signin', rel='local'))
 
 
 @app.route('/control/')
 def control():
     if identify():
         the_user = getuser()
-        url = my_sha1(str(the_user.id)+the_secret_key)
+        url = my_sha1(str(the_user.id) + the_secret_key)
         return render_template('control.html', the_user=the_user, images=the_user.all_images, user_url=url)
     else:
         return redirect(url_for('signin'))
@@ -61,7 +65,7 @@ def uploader():
             db.session.commit()
 
             flash('上传成功')
-            return render_template('control.html', the_user=the_user)
+            return redirect(url_for('control'))
         else:
             return "未登录错误"
 
@@ -70,8 +74,8 @@ def uploader():
 def delete(filename):
     if identify():
         T = getuser()
-        url = my_sha1(str(T.id)+the_secret_key)
-        os.remove('./static/images/'+url+'/'+str(filename))
+        url = my_sha1(str(T.id) + the_secret_key)
+        os.remove('./static/images/' + url + '/' + str(filename))
         delete_which = images.query.filter(images.name == filename).first()
         db.session.delete(delete_which)
         db.session.commit()
@@ -82,9 +86,10 @@ def delete(filename):
 def download(filename):
     if identify():
         T = getuser()
-        url = my_sha1(str(T.id)+the_secret_key)
-        path = './static/images/'+url+'/'+str(filename)
+        url = my_sha1(str(T.id) + the_secret_key)
+        path = './static/images/' + url + '/' + str(filename)
         return send_file(path, as_attachment=True)
+
 
 @app.route('/register/', methods=['GET', 'POST'])
 def register():
@@ -103,13 +108,14 @@ def register():
         temp_user = users.query.filter(users.name == username).first()
         os.mkdir('./static/images/' + my_sha1(str(temp_user.id) + the_secret_key))
         flash('注册成功')
-        return redirect(url_for('signin'))
+        return redirect(url_for('signin', rel='local'))
 
 
-@app.route('/signin/', methods=['GET', 'POST'])
-def signin():
+@app.route('/signin/<rel>', methods=['GET', 'POST'])
+def signin(rel, ags=None):
     if request.method == 'GET':
-        return render_template('signin.html')
+        ags = request.args.get('ags')
+        return render_template('signin.html', jump=rel, ags=ags)
     else:
         username = request.form['username']
         password = request.form['password1']
@@ -121,15 +127,165 @@ def signin():
             the_id = str(the_user.id)
             the_time = str(datetime.datetime.now() + datetime.timedelta(days=1))
             _secret_key = my_sha1(the_id + password + the_time + the_secret_key)
-            resp = make_response(redirect(url_for('control')))
-            resp.set_cookie('data', the_id + '/' + the_time + '/' + _secret_key)
-            return resp
+            if rel == 'local':
+                resp = make_response(redirect(url_for('control')))
+                resp.set_cookie('data', the_id + '/' + the_time + '/' + _secret_key)
+                return resp
+            else:
+                print("abc", request.form['ags'])
+                resp = make_response(redirect(url_for('authorize', arg=request.form['ags'])))
+                resp.set_cookie('data', the_id + '/' + the_time + '/' + _secret_key)
+                return resp
         else:
             # 匹配失败
             flash('密码错误')
             return render_template('signin.html')
 
 
+"""提供oauth"""
+
+
+@app.route('/authorize', methods=['GET', 'POST'])
+def authorize(arg=None):
+    if request.method == 'GET':
+        client_id = request.args.get('client_id')
+        redirect_uri = request.args.get('redirect_uri')
+        ags = request.args.get('arg')
+        if ags:
+            arg = ags
+        if arg is not None:
+            temp = arg.split('_', 1)
+            client_id = temp[0]
+            redirect_uri = temp[1]
+        if client_id is None or redirect_uri is None:
+            return "API调用错误（错误的url）"
+        if identify():
+            return render_template('authorize.html', client_id=client_id, redirect_uri=redirect_uri)
+        else:
+            return redirect(url_for('signin', rel='auth', ags=client_id+'_'+redirect_uri))
+    else:
+        the_user = getuser()
+        client_id = request.form['client_id']
+        redirect_uri = request.form['redirect_uri']
+        t = request.form['time']
+        scope = request.form['scope']
+        code = my_sha1(str(time.time()))
+        r.hmset(code, {'client_id': client_id, 'redirect_uri': redirect_uri,
+                       'time': t, 'scope': scope, 'id': the_user.id})
+        r.expire(code, 100)
+        return redirect(redirect_uri+"?code="+code)
+
+
+@app.route('/token', methods=['GET', 'POST'])
+def token():
+    if request.method == 'POST':
+        client_id = request.args.get('client_id')
+        redirect_uri = request.args.get('redirect_uri')
+        code = request.args.get('code')
+        if not code or not client_id or not redirect_uri:
+            return "错误调用"
+        else:
+            dic = r.hgetall(code)
+            if not dic:
+                return "授权码错误/失效"
+            if dic[b'client_id'] == client_id.encode() and dic[b'redirect_uri'] == redirect_uri.encode():
+                the_id = dic[b'id'].decode()
+                the_scope = dic[b'scope'].decode()
+                the_token = my_sha1(str(the_id)+str(time.time()))
+                r.hmset(the_token, {'id': the_id, 'scope': the_scope})
+
+                keep_time = int(dic[b'time'].decode())*86400
+                r.expire(the_token, keep_time)
+
+                # r.delete(code)
+                response = {'access_token': the_token, 'expires_in': keep_time, 'scope': the_scope}
+
+                return json.dumps(response)
+    else:
+        return "method error"
+
+
+@app.route('/getinfo')
+def getinfo():
+    the_token = request.headers["access_token"]
+    print("收到令牌", the_token)
+    dic = r.hgetall(the_token)
+    the_id = dic[b'id'].decode()
+    the_user = users.query.filter(users.id == the_id).first()
+    the_images = []
+    for i in the_user.all_images:
+        the_images.append(i.name)
+    response = {'id': the_user.id, 'name': the_user.name, 'images': the_images}
+    return json.dumps(response)
+
+
+@app.route('/api/getimg/<filename>')
+def getimg(filename):
+    the_token = request.headers["access_token"]
+    msg = r.hgetall(the_token)
+    if msg is None:
+        return "令牌错误/过期"
+    else:
+        the_id = str(msg[b'id'].decode())
+        path = my_sha1(the_id+the_secret_key)
+        with open('./static/images/'+path+'/'+filename, 'rb') as f:
+            data = f.read()
+        return data
+
+
+@app.route('/api/upload/')
+def ApiUpload():
+    f = request.files['files']
+    t = f.filename.split('.')[-1]
+
+    print(f.filename)
+
+    the_token = request.headers["access_token"]
+    msg = r.hgetall(the_token)
+    if msg is None:
+        return "令牌错误/过期"
+    else:
+        the_id = str(msg[b'id'].decode())
+        filename = my_sha1(the_id + str(time.time())) + '.' + t
+        f.save('./static/images/' + my_sha1(the_id + the_secret_key) + '/' + filename)
+
+        add_ = images(owner_id=int(the_id), name=filename)
+        db.session.add(add_)
+        db.session.commit()
+    return 'success'
+
+
+@app.route('/api/download/<filename>')
+def ApiDownload(filename):
+    the_token = request.headers["access_token"]
+    msg = r.hgetall(the_token)
+    if msg is None:
+        return "令牌错误/过期"
+    else:
+        the_id = str(msg[b'id'].decode())
+        url = my_sha1(the_id + the_secret_key)
+        path = './static/images/' + url + '/' + str(filename)
+        return send_file(path, as_attachment=True)
+
+
+@app.route('/api/delete/<filename>')
+def ApiDelete(filename):
+    the_token = request.headers["access_token"]
+    msg = r.hgetall(the_token)
+    if msg is None:
+        return "令牌错误/过期"
+    else:
+        the_id = str(msg[b'id'].decode())
+        scope = str(msg[b'scope'].decode())
+        if scope == 'r':
+            return "权限不足"
+        url = my_sha1(the_id + the_secret_key)
+        path = './static/images/' + url + '/' + str(filename)
+        os.remove(path)
+        remove = images.query.filter(images.name == filename).first()
+        db.session.delete(remove)
+        db.session.commit()
+        return 'success'
 
 
 def identify():

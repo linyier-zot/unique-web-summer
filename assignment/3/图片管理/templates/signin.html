@@ -9,10 +9,11 @@
 <body>
   <h1>这是登录页面</h1>
   <div style="margin:7px">
-    <form action="/signin/" method="post" onsubmit='encrypt()'>
+    <form action="/signin/{{jump}}" method="post" onsubmit='encrypt()'>
       <input class="uk-input" type="text" name="username" placeholder="用户名" Pattern ="^[a-zA-Z0-9_-]{4,16}$" required><br>
       <input class="uk-input" type="password" name="password1" id="password1" placeholder="输入密码" pattern="^(?![0-9]+$)(?![a-zA-Z]+$)[0-9A-Za-z]{6,20}$" required><br>
       <input class="uk-input" type="submit">
+      <input type="text" name="ags" value="{{ags}}" style="display:none">
     </form>
   </div>
   <a href="/register">注册</a>
